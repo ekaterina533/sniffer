@@ -1,45 +1,64 @@
-from scapy.all import sniff, TCP, UDP, Raw, wrpcap
+import scapy.all as scapy
 import threading
 import queue
 import time
+import sys
 
-ftp_queue = queue.Queue()
-ftp_data_queue = queue.Queue()
-other_queue = queue.Queue()
+# Очереди для передачи пакетов между сниффером и обработчиками
+queue1 = queue.Queue()
+queue2 = queue.Queue()
+queue3 = queue.Queue()
 
-def packet_handler(paket):
-    if packet.haslayer(TCP) and packet.haslayer(Raw):
-        payload = packet[Raw].load/decode(errors="ignore")
+# Функция для обработчика 1 (FTP-управление)
+def handler1():
+    while True:
+        packet = queue1.get()
+        if packet:
+            scapy.wrpcap("ftp.pcap", packet, append=True)
 
-        ftp_commands = ["USER", "PASS", "RETR", "STOR", "LIST"]
-        if any(cmd in payload for cmd in ftp_commands):
-            ftp_queue.put(packet)
-            return
-        if packet[TCP].sport == 21 or packet[TCP].dport ==21:
-            ftp_data_queue.put(packet)
-            return
-    if packet.haslayer(UDP):
-        if 20000 <= packet[UDP].sport <=25000:
-            print(f"Обработчик 3: {time.strftime('%H:%M:%S')} пакет UDP {packet[IP].src}:{packet[UDP].sport} -> {packet[IP].dst}:{packet[UDP].dport} игнорируется")
-            return
+# Функция для обработчика 2 (FTP-данные)
+def handler2():
+    while True:
+        packet = queue2.get()
+        if packet:
+            scapy.wrpcap("ftp_data.pcap", packet, append=True)
 
-    if packet.haslayer(TCP) and packet[TCP].flags == "S":
-        print(f"Обработчик 3: {time.strftime('%H:%M:%S')} пакет TCP {packet[IP].src}:{packet[TCP].sport} -> {packet[IP].dst}:{packet[TCP].dport} инициирует соединение")
-        other_queue.put(packet)
+# Функция для обработчика 3 (остальные пакеты)
+def handler3():
+    while True:
+        packet = queue3.get()
+        if packet:
+            if packet.haslayer(scapy.UDP) and packet[scapy.UDP].sport in range(20000, 25001):
+                print(f"Обработчик 3: {time.ctime()} пакет UDP {packet[scapy.IP].src}:{packet[scapy.UDP].sport} -> {packet[scapy.IP].dst}:{packet[scapy.UDP].dport} игнорируется")
+            elif packet.haslayer(scapy.TCP) and packet[scapy.TCP].flags == 'S':
+                print(f"Обработчик 3: {time.ctime()} пакет TCP {packet[scapy.IP].src}:{packet[scapy.TCP].sport} -> {packet[scapy.IP].dst}:{packet[scapy.TCP].dport} инициирует соединение")
+            else:
+                scapy.wrpcap("other.pcap", packet, append=True)
 
-def start_sniffer(interface):
-    print(f"Сниффер запущен на интерфейсе {interface}")
-    sniff(iface=interface, prn=packet_handler, store=False)
+# Функция для захвата пакетов
+def packet_callback(packet):
+    if packet.haslayer(scapy.TCP) and packet.haslayer(scapy.Raw):
+        if packet[scapy.TCP].dport == 21 or packet[scapy.TCP].sport == 21:  # FTP-управление
+            queue1.put(packet)
+        elif packet[scapy.TCP].dport == 20 or packet[scapy.TCP].sport == 20:  # FTP-данные
+            queue2.put(packet)
+        else:
+            queue3.put(packet)
+    else:
+        queue3.put(packet)
+
+# Запуск обработчиков в отдельных потоках
+threading.Thread(target=handler1, daemon=True).start()
+threading.Thread(target=handler2, daemon=True).start()
+threading.Thread(target=handler3, daemon=True).start()
+
+# Запуск сниффера
+def start_sniffing(interface):
+    print(f"Запуск сниффера на интерфейсе {interface}...")
+    scapy.sniff(iface=interface, prn=packet_callback, store=False)
 
 if __name__ == "__main__":
-    import sys
     if len(sys.argv) != 2:
-        print("Использование: python sniffer.py <interface>")
+        print("Использование: python sniffer.py <интерфейс>")
         sys.exit(1)
-
-    interface = sys.argv[1]
-
-    threading.Thread(target=start_sniffer, args=(interface,), daemon=True).start()
-
-    from handlers import start_handlers
-    start_handlers()
+    start_sniffing(sys.argv[1])

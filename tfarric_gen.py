@@ -1,23 +1,23 @@
 import subprocess
 import sys
 
-def generate_traffic(protocol, sessions):
-    if protocol.upper() == "UDP":
-        cmd = f"iperf3 -c 127.0.0.1 -u -b 1M -t {sessions}"
-    elif protocol.upper() == "TCP":
-        cmd = f"iperf3 -c 127.0.0.1 -t {sessions}"
-    elif protocol.upper() == "FTP":
-        cmd = f"wget ftp://127.0.0.1/file"
+def generate_traffic(traffic_type, sessions, port=None):
+    if traffic_type == "TCP":
+        for _ in range(sessions):
+            subprocess.run(["iperf3", "-c", "127.0.0.1", "-p", str(port) if port else "5201"])
+    elif traffic_type == "UDP":
+        for _ in range(sessions):
+            subprocess.run(["iperf3", "-c", "127.0.0.1", "-u", "-p", str(port) if port else "5201"])
+    elif traffic_type == "FTP":
+        subprocess.run(["wget", "ftp://127.0.0.1"])
     else:
-        print("Неизвестный протокол")
-        return
-    subprocess.run(cmd, shell=True)
+        print("Неверный тип трафика. Используйте TCP, UDP или FTP.")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Использование: python traffic_gen.py <TCP/UDP/FTP> <количество сессий>")
+        print("Использование: python traffic_generator.py <тип трафика> <количество сессий> [порт]")
         sys.exit(1)
-
-    protocol = sys.argv[1]
+    traffic_type = sys.argv[1]
     sessions = int(sys.argv[2])
-    generate_traffic(protocol, sessions)
+    port = sys.argv[3] if len(sys.argv) > 3 else None
+    generate_traffic(traffic_type, sessions, port)
